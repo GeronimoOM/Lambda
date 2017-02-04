@@ -8,6 +8,9 @@ main :: IO ()
 main = do
   let e = fact -$- num 4
   print e
-  print $ normalize e
+
+  let ne = normalize e
+  print ne
+
   getChar
   return ()

@@ -9,6 +9,7 @@ import qualified Data.Set            as S
 import           Text.PrettyPrint    (Doc, (<+>), (<>))
 import qualified Text.PrettyPrint    as P
 
+{- Datatype definition -}
 type Name = String
 
 data Expr
@@ -28,6 +29,7 @@ infixr 8 -->>
 (-->>) :: [Name] -> Expr -> Expr
 vs -->> expr = foldr (-->) expr vs
 
+{- Basic operations -}
 free :: Expr -> Set Name
 free (Var x)      = S.singleton x
 free (App e1 e2)  = S.union (free e1) (free e2)
@@ -38,95 +40,125 @@ bound (Var x)      = S.empty
 bound (App e1 e2)  = S.union (bound e1) (bound e2)
 bound (Lam x expr) = S.insert x (bound expr)
 
-data Subst = Subst Name Expr
-
-subst :: Expr -> Subst -> Expr
-subst (Var x) (Subst v t)
+subst :: Expr -> Name -> Expr -> Expr
+subst (Var x) v t
   | x == v = t
   | otherwise = Var x
-subst (App e1 e2) s = App (subst e1 s) (subst e2 s)
-subst (Lam x e) s@(Subst v t)
+subst (App e1 e2) v t = App (subst e1 v t) (subst e2 v t)
+subst (Lam x e) v t
   | x == v = Lam x e
-  | S.notMember v (free e) || S.notMember x (free t) = Lam x (subst e s)
+  | S.notMember v (free e) || S.notMember x (free t) = Lam x (subst e v t)
   | otherwise = let z = genNameNotIn x (S.union (free e) (free t))
-                in Lam z (subst (subst e (Subst x (Var z))) s)
+                in Lam z (subst (subst e x (Var z)) v t)
 
 genNameNotIn :: Name -> Set Name -> Name
 genNameNotIn n names = let n1 = n ++ "_"
   in if S.member n1 names then genNameNotIn n1 names else n1
 
+
+{- Zipper for syntax tree traversal -}
+data ZExpr
+  = ZRoot
+  | ZVar ZExpr Name
+  | ZApp ZExpr Expr Expr
+  | ZLam ZExpr Name Expr
+  deriving (Show)
+
+root :: Expr -> ZExpr
+root e = zipper e ZRoot
+
+zipper :: Expr -> ZExpr -> ZExpr
+zipper (Var x)     p = ZVar p x
+zipper (App e1 e2) p = ZApp p e1 e2
+zipper (Lam x e)   p = ZLam p x e
+
+parent :: ZExpr -> ZExpr
+parent (ZVar p _)   = p
+parent (ZApp p _ _) = p
+parent (ZLam p _ _) = p
+
+scope :: ZExpr -> Expr
+scope (ZVar _ x)     = Var x
+scope (ZApp _ e1 e2) = App e1 e2
+scope (ZLam _ x e)   = Lam x e
+
+up :: ZExpr -> ZExpr
+up e = case parent e of
+  (ZApp p (Var "") e2) -> ZApp p (scope e) e2
+  (ZApp p e1 (Var "")) -> ZApp p e1 (scope e)
+  (ZLam p x e1)        -> ZLam p x (scope e)
+
+down :: ZExpr -> ZExpr
+down (ZLam p x e) = zipper e (ZLam p x (Var ""))
+
+left :: ZExpr -> ZExpr
+left (ZApp p e1 e2) = zipper e1 (ZApp p (Var "") e2)
+
+right :: ZExpr -> ZExpr
+right (ZApp p e1 e2) = zipper e2 (ZApp p e1 (Var ""))
+
+isRoot :: ZExpr -> Bool
+isRoot z = case parent z
+  of ZRoot -> True
+     _     -> False
+
+isLeft :: ZExpr -> Bool
+isLeft z = case parent z
+  of (ZApp p (Var "") e2) -> True
+     _                    -> False
+
+isRight :: ZExpr -> Bool
+isRight z = case parent z
+ of (ZApp p e1 (Var "")) -> True
+    _                    -> False
+
+unzipper :: ZExpr -> Expr
+unzipper e = case
+  parent e of ZRoot -> scope e
+              _     -> unzipper (up e)
+
+applyZ :: ZExpr -> (Expr -> Expr) -> ZExpr
+applyZ z f = zipper (f (scope z)) (parent z)
+
+redex :: Expr -> Bool
+redex (App (Lam x e) t) = True
+redex _                 = False
+
+reduce :: Expr -> Expr
+reduce (App (Lam x e) t) = subst e x t
+
 normalize :: Expr -> Expr
-normalize e = case runState (reduceS e) False
-  of (e', False) -> e'
-     (e', True)  -> normalize e'
+normalize e = unzipper (normalizeZ (root e))
 
-reduceS :: Expr -> State Bool Expr
-reduceS e = do
-  s <- get
-  if s then return e
-       else reduceS' e
+normalizeZ :: ZExpr -> ZExpr
+normalizeZ z | redex (scope z) =
+    let z' = applyZ z reduce
+    in if isLeft z' then normalizeZ $ up z'
+       else normalizeZ z'
+normalizeZ z@ZLam{} = normalizeZ (down z)
+normalizeZ z@ZApp{} = normalizeZ (left z)
+normalizeZ z@ZVar{} = normalizeZBack z
 
-reduceS' :: Expr -> State Bool Expr
-reduceS' (App (Lam x e) t) = do
-  put True
-  return $ subst e (Subst x t)
-reduceS' (App e1 e2)  = do
-  e1' <- reduceS e1
-  e2' <- reduceS e2
-  return $ App e1' e2'
-reduceS' (Lam x expr) = do
-  expr' <- reduceS expr
-  return $ Lam x expr'
-reduceS' e = return e
+normalizeZBack :: ZExpr -> ZExpr
+normalizeZBack z
+  | isLeft z  = normalizeZ (right (up z))
+  | isRoot z  = z
+  | otherwise = normalizeZBack (up z)
 
+{- Prety printing -}
 varsBody :: Expr -> ([Name], Expr)
 varsBody (Lam x e) = let (vars, body) = varsBody e
   in (x : vars, body)
 varsBody e = ([], e)
 
-parensIf :: Bool -> Doc -> Doc
-parensIf True  = P.parens
-parensIf False = id
-
-prettyDp :: Expr -> Int -> Doc
-prettyDp (Var x) _     = P.text x
-prettyDp (App e1 e2) d = parensIf (d > 0) (prettyDp e1 (d + 1) <+> prettyDp e2 d)
-prettyDp f@(Lam x e2) d = let (vars, body) = varsBody f
-  in P.char '\\' <> P.hsep (map P.text vars)
-    <+> P.text "->" <+> prettyDp body (d + 1)
-
 pretty :: Expr -> Doc
-pretty e = prettyDp e 0
+pretty (Var x)   = P.text x
+pretty (App e1 e2) = pretty e1 <+> parensApp (pretty e2)
+  where parensApp = case e2 of (App _ _) -> P.parens
+                               _         -> id
+pretty lam = let (vars, body) = varsBody lam
+  in P.parens $ P.char '\\' <> P.hsep (map P.text vars)
+     <+> P.text "->" <+> pretty body
 
 instance Show Expr where
   show = P.render . pretty
-
-{-
-instance Show Expr where
-  show (Name x)                = [x]
-  show (App (Name x) (Name y)) = [x, ' ', y]
-  show (App (Name x) e2)      = [x, ' '] ++ par (show e2)
-  show (App e1 (Name y))      = par (show e1) ++ [' ', y]
-  show (App e1 e2)           = par(show e1) ++ " " ++ par (show e2)
-  show e          = maybe (maybe showLam show (maybeNum e)) show (maybeBool e)
-    where showLam = "L" ++ intersperse ' ' vars ++ "." ++ show rest
-          (vars, rest) = multi e
-          multi (Lam x expr) = let (vs, e) = multi expr in (x : vs, e)
-          multi e             = ([], e)
-
-maybeBool :: Expr -> Maybe Bool
-maybeBool (Lam x (Lam y (Name z)))
-  | x == y = Nothing
-  | x == z = Just True
-  | y == z = Just False
-maybeBool _ = Nothing
-
-maybeNum :: Expr -> Maybe Int
-maybeNum (Lam f (Lam x e)) = maybeNumCount f x e
-  where maybeNumCount f x (Name x') | x == x' = Just 0
-        maybeNumCount f x (App (Name f') e) | f == f' = do
-          n <- maybeNumCount f x e
-          return (n + 1)
-        maybeNumCount f x _ = Nothing
-maybeNum _                   = Nothing
--}
