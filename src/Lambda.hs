@@ -55,71 +55,6 @@ genNameNotIn :: Name -> Set Name -> Name
 genNameNotIn n names = let n1 = n ++ "_"
   in if S.member n1 names then genNameNotIn n1 names else n1
 
-
-{- Zipper for syntax tree traversal -}
-data ZExpr
-  = ZRoot
-  | ZVar ZExpr Name
-  | ZApp ZExpr Expr Expr
-  | ZLam ZExpr Name Expr
-  deriving (Show)
-
-root :: Expr -> ZExpr
-root e = zipper e ZRoot
-
-zipper :: Expr -> ZExpr -> ZExpr
-zipper (Var x)     p = ZVar p x
-zipper (App e1 e2) p = ZApp p e1 e2
-zipper (Lam x e)   p = ZLam p x e
-
-parent :: ZExpr -> ZExpr
-parent (ZVar p _)   = p
-parent (ZApp p _ _) = p
-parent (ZLam p _ _) = p
-
-scope :: ZExpr -> Expr
-scope (ZVar _ x)     = Var x
-scope (ZApp _ e1 e2) = App e1 e2
-scope (ZLam _ x e)   = Lam x e
-
-up :: ZExpr -> ZExpr
-up e = case parent e of
-  (ZApp p (Var "") e2) -> ZApp p (scope e) e2
-  (ZApp p e1 (Var "")) -> ZApp p e1 (scope e)
-  (ZLam p x e1)        -> ZLam p x (scope e)
-
-down :: ZExpr -> ZExpr
-down (ZLam p x e) = zipper e (ZLam p x (Var ""))
-
-left :: ZExpr -> ZExpr
-left (ZApp p e1 e2) = zipper e1 (ZApp p (Var "") e2)
-
-right :: ZExpr -> ZExpr
-right (ZApp p e1 e2) = zipper e2 (ZApp p e1 (Var ""))
-
-isRoot :: ZExpr -> Bool
-isRoot z = case parent z
-  of ZRoot -> True
-     _     -> False
-
-isLeft :: ZExpr -> Bool
-isLeft z = case parent z
-  of (ZApp p (Var "") e2) -> True
-     _                    -> False
-
-isRight :: ZExpr -> Bool
-isRight z = case parent z
- of (ZApp p e1 (Var "")) -> True
-    _                    -> False
-
-unzipper :: ZExpr -> Expr
-unzipper e = case
-  parent e of ZRoot -> scope e
-              _     -> unzipper (up e)
-
-applyZ :: ZExpr -> (Expr -> Expr) -> ZExpr
-applyZ z f = zipper (f (scope z)) (parent z)
-
 redex :: Expr -> Bool
 redex (App (Lam x e) t) = True
 redex _                 = False
@@ -127,23 +62,69 @@ redex _                 = False
 reduce :: Expr -> Expr
 reduce (App (Lam x e) t) = subst e x t
 
+{- Zipper for syntax tree traversal -}
+data ZExpr
+  = ZNode Expr ZParent
+  deriving (Show)
+
+data ZParent
+  = ZRoot
+  | ZLam Name ZParent
+  | ZAppL Expr ZParent
+  | ZAppR Expr ZParent
+    deriving (Show)
+
+zipper :: Expr -> ZParent -> ZExpr
+zipper = ZNode
+
+root :: Expr -> ZExpr
+root e = zipper e ZRoot
+
+up :: ZExpr -> ZExpr
+up (ZNode e p) = case p of
+  (ZAppL e2 pp) -> zipper (App e e2) pp
+  (ZAppR e1 pp) -> zipper (App e1 e) pp
+  (ZLam x pp)   -> zipper (Lam x e) pp
+
+left :: ZExpr -> ZExpr
+left (ZNode (App e1 e2) p) = zipper e1 (ZAppL e2 p)
+left (ZNode (Lam x e) p)   =  zipper e (ZLam x p)
+
+right :: ZExpr -> ZExpr
+right (ZNode (App e1 e2) p) = zipper e2 (ZAppR e1 p)
+
+isRoot :: ZExpr -> Bool
+isRoot (ZNode _ ZRoot) = True
+isRoot _               = False
+
+isLeft :: ZExpr -> Bool
+isLeft (ZNode _ ZAppL{}) = True
+isLeft _                 = False
+
+isVar :: ZExpr -> Bool
+isVar (ZNode Var{} _) = True
+isVar _               = False
+
+unzipper :: ZExpr -> Expr
+unzipper (ZNode e _) = e
+
+applyZ :: (Expr -> Expr) -> ZExpr -> ZExpr
+applyZ f (ZNode e p) = ZNode (f e) p
+
+mapZIf :: (ZExpr -> Bool) -> (ZExpr -> ZExpr) -> ZExpr -> ZExpr
+mapZIf p f z
+  | p z = f z
+  | isVar z = mapZIfBack p f z
+  | otherwise = mapZIf p f (left z) where
+    mapZIfBack p f z
+      | isLeft z = mapZIf p f (right (up z))
+      | isRoot z = z
+      | otherwise = mapZIfBack p f (up z)
+
 normalize :: Expr -> Expr
-normalize e = unzipper (normalizeZ (root e))
-
-normalizeZ :: ZExpr -> ZExpr
-normalizeZ z | redex (scope z) =
-    let z' = applyZ z reduce
-    in if isLeft z' then normalizeZ $ up z'
-       else normalizeZ z'
-normalizeZ z@ZLam{} = normalizeZ (down z)
-normalizeZ z@ZApp{} = normalizeZ (left z)
-normalizeZ z@ZVar{} = normalizeZBack z
-
-normalizeZBack :: ZExpr -> ZExpr
-normalizeZBack z
-  | isLeft z  = normalizeZ (right (up z))
-  | isRoot z  = z
-  | otherwise = normalizeZBack (up z)
+normalize e = unzipper $ mapZIf redexZ reduceZ (root e) where
+  redexZ = redex . unzipper
+  reduceZ z = mapZIf redexZ reduceZ ((if isLeft z then up else id) $ applyZ reduce z)
 
 {- Prety printing -}
 varsBody :: Expr -> ([Name], Expr)

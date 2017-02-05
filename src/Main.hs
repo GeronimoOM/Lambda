@@ -6,9 +6,8 @@ import           Prelude            hiding (and, snd)
 
 main :: IO ()
 main = do
-  let e = fact -$- num 4
+  let e = fact -$- num 5
   print e
-
   let ne = normalize e
   print ne
 
