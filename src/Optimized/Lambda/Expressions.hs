@@ -1,95 +1,106 @@
 module Optimized.Lambda.Expressions where
 
-import           Prelude          hiding (and, curry, fst, not, or, snd, succ,
-                                   uncurry)
+import           Prelude          hiding (and, curry, fst, not, or, pred, snd,
+                                   succ, uncurry)
 
 import           Optimized.Lambda
 
--- true = λx y.x
+v0, v1, v2, v3 :: Expr
+v0 = Var 0
+v1 = Var 1
+v2 = Var 2
+v3 = Var 3
+
+lam2, lam3, lam4 :: Expr -> Expr
+lam2 = lamn 2
+lam3 = lamn 3
+lam4 = lamn 4
+
+-- true = λ.λ.1
 true :: Expr
-true = lamN 2 (Var 0)
--- false = λx y.y
+true = lam2 v1
+-- false = λ.λ.0
 false :: Expr
-false = lamN 2 (Var 1)
+false = lam2 v0
 
--- ifThenElse = p ? x : y = λp x y.p x y
+-- ifThenElse = p ? x : y = λ.λ.λ.2 1 0
 ifThenElse :: Expr
-ifThenElse = Lam $ Lam $ Lam $ Var 0 -$- Var 1 -$- Var 2
--- not = p ? false : true = λp.ifThenElse p false true
+ifThenElse = lam3 (v2 <> v1 <> v0)
+-- not = p ? false : true = λ.ifThenElse 0 false true
 not :: Expr
-not = "p" --> ifThenElse -$- Var "p" -$- false -$- true
--- and = p ? q : false = λp q.ifThenElse p q false
+not = lam (ifThenElse <> v0 <> false <> true)
+-- and = p ? q : false = λ.λ.ifThenElse 1 0 false
 and :: Expr
-and = ["p", "q"] -->> ifThenElse -$- Var "p" -$- Var "q" -$- false
--- or = p ? true : q = λp q.ifThenElse p true q
+and = lam2 (ifThenElse <> v1 <> v0 <> false)
+-- or = p ? true : q = λ.λ.ifThenElse 1 true 0
 or :: Expr
-or = ["p", "q"] -->> ifThenElse -$- Var "p" -$- true -$- Var "q"
+or =  lam2 (ifThenElse <> v1 <> true <> v0)
 
--- (l, r) = λl r f.f l r
+-- (l, r) = λ.λ.λ.0 2 1
 pair :: Expr
-pair = ["l", "r", "f"] -->> Var "f" -$- Var "l" -$- Var "r"
--- fst = λp.p true
+pair = lam3 (v0 <> v2 <> v1)
+-- fst = λ.0 true
 fst :: Expr
-fst = "p" --> Var "p" -$- true
--- snd = λp.p false
+fst = lam (v0 <> true)
+-- snd = λ.0 false
 snd :: Expr
-snd = "p" --> Var "p" -$- false
+snd = lam (v0 <> false)
 
--- curry = λf x y.f (x, y)
+-- curry = λ.λ.λ.2 (1, 0)
 curry :: Expr
-curry = ["f", "x", "y"] -->> Var "f" -$- (pair -$- Var "x" -$- Var "y")
--- uncurry = λg p.g (fst p) (snd p)
+curry = lam3 (v2 <> (pair <> v1 <> v0))
+-- uncurry = λ.λ.0 (fst 1) (snd 1)
 uncurry :: Expr
-uncurry = ["g", "p"] -->> Var "g" -$- (fst -$- Var "p") -$- (snd -$- Var "p")
+uncurry = lam2 (v1 <> (fst <> v0) <> (snd <> v0))
 
--- n = λf x.f^n x
+-- n = λ.λ.1^n 0
 num :: Int -> Expr
-num n = ["f", "x"] -->> iterate (Var "f" -$-) (Var "x") !! n
+num n = lam2 (iterate (v1 <>) v0 !! n)
 
--- succ = λn f x.n f (f x)
+-- succ = λ.λ.λ.2 1 (1 0)
 succ :: Expr
-succ = ["n", "f", "x"] -->> Var "n" -$- Var "f" -$- (Var "f" -$- Var "x")
---zero = λn.n (λx.false) true
+succ = lam3 (v2 <> v1 <> (v1 <> v0))
+--zero = λ.0 (λ.false) true
 zero :: Expr
-zero = "n" --> Var "n" -$- ("x" --> false) -$- true
+zero = lam (v0 <> lam false <> true)
 
---gte (>=) = λn m.zero(n pre m)
+--gte (>=) = λ.λ.zero(1 pre 0)
 gte :: Expr
-gte = ["n", "m"] -->> zero -$- (Var "n" -$- pre -$- Var "m")
+gte = lam2 (zero <> (v1 <> pred <> v0))
 
---eq (==) = λn m.(zero (n pre m)) and (zero (m pre n))
+--eq (==) = λ.λ.(zero (1 pre 0)) and (zero (0 pre 1))
 eq :: Expr
-eq = ["n", "m"] -->> and -$- (zero -$- (Var "n" -$- pre -$- Var "m")) -$- (zero -$- (Var "m" -$- pre -$- Var "n"))
+eq = lam2 (and <> (zero <> (v1 <> pred <> v0)) <> (zero <> (v0 <> pred <> v1)))
 
--- m + n = λm n f x.m f (n f x)
+-- m + n = λ.λ.λ.λ.3 1 (2 1 0)
 add :: Expr
-add = ["m", "n", "f", "x"] -->> Var "m" -$- Var "f" -$- (Var "n" -$- Var "f" -$- Var "x")
--- m * n = λm n f x.m (n f) x
+add = lam4 (v3 <> v1 <> (v2 <> v1 <> v0))
+-- m * n = λ.λ.λ.λ.3 (2 1) 0
 mult :: Expr
-mult = ["m", "n", "f", "x"] -->> Var "m" -$- (Var "n" -$- Var "f") -$- Var "x"
+mult = lam4 (v3 <> (v2 <> v1) <> v0)
 
--- prefn = λf p. (false, (fst p) ? (snd p) : f (snd p))
+-- prefn = λ.λ.(false, (fst 0) ? (snd 0) : 1 (snd 0))
 prefn :: Expr
-prefn = ["f", "p"] -->> pair -$- false -$- (ifThenElse -$- (fst -$- Var "p") -$- (snd -$- Var "p") -$- (Var "f" -$- (snd -$- Var "p")))
--- pre = λn f x. snd(n (prefn f) (true, x))
-pre :: Expr
-pre = ["n", "f", "x"] -->> snd -$- (Var "n" -$- (prefn -$- Var "f") -$- (pair -$- true -$- Var "x"))
+prefn = lam2 (pair <> false <> (ifThenElse <> (fst <> v0) <> (snd <> v0) <> (v1 <> (snd <> v0))))
+-- pred = λ.λ.λ. snd(2 (prefn 1) (true, 0))
+pred :: Expr
+pred = lam3 (snd <> (v2 <> (prefn <> v1) <> (pair <> true <> v0)))
 
-fixed :: Expr
-fixed = fixedT
+--fixpoint
+fixpoint :: Expr
+fixpoint = fixpointT
 
-fixedY :: Expr
-fixedY = "y" --> ("x" --> Var "y" -$- (Var "x" -$- Var "x"))
-             -$- ("x" --> Var "y" -$- (Var "x" -$- Var "x"))
+--Y = λ.(λ.1 (0 0)) (λ.1 (0 0))
+fixpointY :: Expr
+fixpointY = lam (lam (v1 <> (v0 <> v1))
+             <> lam (v1 <> (v0 <> v1)))
 
-fixedT :: Expr
-fixedT = (["x", "y"] -->> Var "y" -$- (Var "x" -$- Var "x" -$- Var "y"))
-     -$- (["x", "y"] -->> Var "y" -$- (Var "x" -$- Var "x" -$- Var "y"))
+--T = (λ.λ.0 (1 1 0)) (λ.λ.0 (1 1 0))
+fixpointT :: Expr
+fixpointT = lam2 (v0 <> (v1 <> v1 <> v0))
+        <> lam2 (v0 <> (v1 <> v1 <> v0))
 
--- fact = rec (λf n.(zero n) ? 1 : n * f (pre n))
+-- fact = rec (λ.λ.(zero 0) ? (num 1) : 0 * 1 (pre 0))
 fact :: Expr
-fact = fixed -$- factF
-  where factF = "f" --> "n" --> ifThenElse -$- (zero -$- Var "n") -$- num 1 -$- (mult -$- Var "n" -$- (Var "f" -$- (pre -$- Var "n")))
-
---letIn
-letIn = undefined
+fact = fixpointT <> factF
+  where factF = lam2 (ifThenElse <> (zero <> v0) <> num 1 <> (mult <> v0 <> (v1 <> (pre <> v0))))

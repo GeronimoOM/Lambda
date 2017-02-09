@@ -1,28 +1,30 @@
 module Optimized.Lambda where
 
+import           Text.PrettyPrint (Doc)
+import qualified Text.PrettyPrint as P
+
 data Expr
   = Var Int
   | App Expr Expr
   | Lam Expr
-  deriving (Show)
 
-infixl 9 -$-
-(-$-) :: Expr -> Expr -> Expr
-f -$- x = App f x
+infixl 9 <>
+(<>) :: Expr -> Expr -> Expr
+f <> x = App f x
 
 lam :: Expr -> Expr
 lam = Lam
 
-lamN :: Int -> Expr -> Expr
-lamN n e = iterate lam e !! n
+lamn :: Int -> Expr -> Expr
+lamn n e = iterate lam e !! n
 
 shift :: Expr -> Int -> Expr
-shift e d = shiftC e d 0
+shift e d = shiftc e d 0
 
-shiftC :: Expr -> Int -> Int -> Expr
-shiftC (Var k) d c     = if k < c then Var k else Var (k + d)
-shiftC (App t1 t2) d c = App (shiftC t1 d c) (shiftC t2 d c)
-shiftC (Lam t) d c     = Lam (shiftC t d (c + 1))
+shiftc :: Expr -> Int -> Int -> Expr
+shiftc (Var k) d c     = if k < c then Var k else Var (k + d)
+shiftc (App t1 t2) d c = App (shiftc t1 d c) (shiftc t2 d c)
+shiftc (Lam t) d c     = Lam (shiftc t d (c + 1))
 
 subst :: Expr -> Int -> Expr -> Expr
 subst (Var k) j s     = if j == k then s else Var k
@@ -85,17 +87,35 @@ unzipper (ZNode e _) = e
 applyZ :: (Expr -> Expr) -> ZExpr -> ZExpr
 applyZ f (ZNode e p) = zipper (f e) p
 
-mapZIf :: (ZExpr -> Bool) -> (ZExpr -> ZExpr) -> ZExpr -> ZExpr
-mapZIf p f z
-  | p z = f z
-  | isVar z = mapZIfBack p f z
-  | otherwise = mapZIf p f (left z) where
-    mapZIfBack p f z
-      | isLeft z = mapZIf p f (right (up z))
-      | isRoot z = z
-      | otherwise = mapZIfBack p f z
+--traverses zipper z in depth-first order (chooses left children first) applying f to z whenever p z is True
+dfZCondMap :: (ZExpr -> Bool) -> (ZExpr -> ZExpr) -> ZExpr -> ZExpr
+dfZCondMap p f z
+  | p z       = dfZCondMap p f (f z)
+  | isVar z   = dfZCondMap' p f z
+  | otherwise = dfZCondMap p f (left z) where
+    dfZCondMap' p f z
+      | isLeft z  = dfZCondMap p f (right (up z))
+      | isRoot z  = z
+      | otherwise = dfZCondMap' p f (up z)
 
 normalize :: Expr -> Expr
-normalize e = unzipper $ mapZIf redexZ reduceZ (root e) where
-  redexZ = redex . unzipper
-  reduceZ z = mapZIf redexZ ((if isLeft z then up else id) . applyZ reduce) z
+normalize e = unzipper $ dfZCondMap (redex . unzipper) reduceZ (root e)
+  where reduceZ z = (if isLeft z then up else id) (applyZ reduce z)
+
+{- Prety printing -}
+lamBody :: Expr -> (Int, Expr)
+lamBody (Lam e) = let (n, body) = lamBody e
+  in (n + 1, body)
+lamBody e = (0, e)
+
+pretty :: Expr -> Doc
+pretty (Var n)   = P.int n
+pretty (App e1 e2) = pretty e1 P.<+> parensApp (pretty e2)
+  where parensApp = case e2 of (App _ _) -> P.parens
+                               _         -> id
+pretty lam = let (n, body) = lamBody lam
+  in P.parens $ P.char 'L' P.<> (if n > 1 then P.int n else P.empty)
+     P.<> P.char '.' P.<> pretty body
+
+instance Show Expr where
+  show = P.render . pretty
