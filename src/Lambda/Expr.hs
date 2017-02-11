@@ -1,4 +1,13 @@
-module Lambda.Expr where
+module Lambda.Expr
+   ((.>), (.>>), (.>>>),
+    true, false, ifThenElse, not, and, or,
+    pair, fst, snd, curry, uncurry,
+    num, succ, iszero, pred,
+    eq, neq, gte, gt, lte, lt,
+    add, mult, subtr,
+    combS, combK, combI,
+    fixY, fixT,
+    letIn, letRecIn) where
 
 import           Lambda.Core
 import qualified Prelude     as P
@@ -111,6 +120,9 @@ add = [m, n, f, x] -->> vm <> vf <> (vn <> vf <> vx)
 mult :: Expr
 mult = [m, n, f, x] -->> vm <> (vn <> vf) <> vx
 
+subtr :: Expr
+subtr = [m, n] -->> vn <> pred <> vm
+
 -- S K I Combinators
 combS :: Expr
 combS = [f, p, x] -->> vf <> vx <> (vp <> vx)
@@ -129,16 +141,9 @@ fixT :: Expr
 fixT = ([x, y] -->> vy <> (vx <> vx <> vy))
     <> ([x, y] -->> vy <> (vx <> vx <> vy))
 
-fix :: Expr
-fix = fixT
-
-fact :: Expr
-fact = fix <> factF
-  where factF = [f, n] -->> ifThenElse <> (iszero <> vn) <> num 1 <> (mult <> vn <> (vf <> (pred <> vn)))
-
 -- Let expressions
 letIn :: Name -> Expr -> Expr -> Expr
 letIn v t e = (v --> e) <> t
 
 letRecIn :: Name -> Expr -> Expr -> Expr
-letRecIn v t = letIn v (fix <> (v --> t))
+letRecIn v t = letIn v (fixT <> (v --> t))

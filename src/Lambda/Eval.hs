@@ -1,8 +1,10 @@
 module Lambda.Eval
-  (free, bound, subst, redex, reduce, eval)
+  (free, bound, subst, redex, reduce, eval, evalLs)
 where
 
-import qualified Data.Set    as S
+import           Control.Monad.State
+import           Control.Monad.Writer
+import qualified Data.Set             as S
 import           Lambda.Core
 
 free :: Expr -> S.Set Name
@@ -37,64 +39,41 @@ redex _                 = False
 reduce :: Expr -> Expr
 reduce (App (Lam x e) t) = subst e x t
 
-{- Zipper for syntax tree traversal -}
-data ZExpr
-  = ZNode Expr ZParent
-
-data ZParent
-  = ZRoot
-  | ZLam Name ZParent
-  | ZAppL Expr ZParent
-  | ZAppR Expr ZParent
-
-zipper :: Expr -> ZParent -> ZExpr
-zipper = ZNode
-
-root :: Expr -> ZExpr
-root e = zipper e ZRoot
-
-up :: ZExpr -> ZExpr
-up (ZNode e p) = case p of
-  (ZAppL e2 pp) -> zipper (App e e2) pp
-  (ZAppR e1 pp) -> zipper (App e1 e) pp
-  (ZLam x pp)   -> zipper (Lam x e) pp
-
-left :: ZExpr -> ZExpr
-left (ZNode (App e1 e2) p) = zipper e1 (ZAppL e2 p)
-left (ZNode (Lam x e) p)   = zipper e (ZLam x p)
-
-right :: ZExpr -> ZExpr
-right (ZNode (App e1 e2) p) = zipper e2 (ZAppR e1 p)
-
-isRoot :: ZExpr -> Bool
-isRoot (ZNode _ ZRoot) = True
-isRoot _               = False
-
-isLeft :: ZExpr -> Bool
-isLeft (ZNode _ ZAppL{}) = True
-isLeft _                 = False
-
-isVar :: ZExpr -> Bool
-isVar (ZNode Var{} _) = True
-isVar _               = False
-
-unzipper :: ZExpr -> Expr
-unzipper (ZNode e _) = e
-
-applyZ :: (Expr -> Expr) -> ZExpr -> ZExpr
-applyZ f (ZNode e p) = ZNode (f e) p
-
---traverses zipper z in depth-first order (chooses left child first) applying f to z whenever (p z) is True
-dfZCondMap :: (ZExpr -> Bool) -> (ZExpr -> ZExpr) -> ZExpr -> ZExpr
-dfZCondMap p f z
-  | p z = dfZCondMap p f (f z)
-  | isVar z =   dfZCondMap' p f z
-  | otherwise = dfZCondMap p f (left z) where
-    dfZCondMap' p f z
-      | isLeft z = dfZCondMap p f (right (up z))
-      | isRoot z = z
-      | otherwise = dfZCondMap' p f (up z)
-
 eval :: Expr -> Expr
-eval e = unzipper $ dfZCondMap (redex . unzipper) reduceZ (root e)
-  where reduceZ z = (if isLeft z then up else id) (applyZ reduce z)
+eval e = case evalSRun e
+   of (ev, False) -> ev
+      (ev, True)  -> eval ev
+
+evalSRun :: Expr -> (Expr, Bool)
+evalSRun e = runState (evalSStop e) False
+
+evalSStop :: Expr -> State Bool Expr
+evalSStop e = do
+  stop <- get
+  if stop then return e else evalSTrav e
+
+evalSTrav :: Expr -> State Bool Expr
+evalSTrav e | redex e = evalSRed e
+evalSTrav (App e1 e2) = do
+  e1e <- evalSStop e1
+  e2e <- evalSStop e2
+  return (App e1e e2e)
+evalSTrav (Lam n e) = do
+  ee <- evalSStop e
+  return (Lam n ee)
+evalSTrav e = return e
+
+evalSRed :: Expr -> State Bool Expr
+evalSRed e = do
+  put True
+  return (reduce e)
+
+evalLs :: Expr -> [Expr]
+evalLs e = execWriter (evalW e)
+
+evalW :: Expr -> Writer [Expr] Expr
+evalW e = do
+  tell [e]
+  case evalSRun e of
+    (ev, False) -> return ev
+    (ev, True)  ->  evalW ev

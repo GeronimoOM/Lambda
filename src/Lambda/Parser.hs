@@ -1,6 +1,7 @@
 module Lambda.Parser where
 
 import           Data.Functor.Identity (Identity)
+import           Data.Maybe
 import           Lambda.Core           (Expr (..), Name, (-->), (-->>), (<>))
 import           Lambda.Expr           ((.>), (.>>), (.>>))
 import qualified Lambda.Expr           as Ex
@@ -57,15 +58,14 @@ postfix s f = Postfix (reservedOp s >> return f)
 
 table :: OperTable Expr
 table = [
-  [binary "" (<>) AssocLeft],
-  [binary "," (Ex.pair .>>) AssocLeft],
   [postfix "++" (Ex.succ .>), postfix "--" (Ex.pred .>),
    prefix "!" (Ex.not .>), postfix "?" (Ex.iszero .>)],
-  [binary "*" (Ex.mult .>>) AssocNone],
-  [binary "+" (Ex.add .>>) AssocNone],
-  [binary ">=" (Ex.gte .>>) AssocLeft, binary "==" (Ex.eq .>>) AssocLeft,
-    binary ">" (Ex.gt .>>) AssocLeft, binary "<=" (Ex.lte .>>) AssocLeft,
-    binary "<" (Ex.lt .>>) AssocLeft, binary "/=" (Ex.neq .>>) AssocLeft],
+  [binary "" (<>) AssocLeft],
+  [binary "*" (Ex.mult .>>) AssocLeft],
+  [binary "+" (Ex.add .>>) AssocLeft, binary "-" (Ex.subtr .>>) AssocLeft],
+  [binary ">=" (Ex.gte .>>) AssocNone, binary "==" (Ex.eq .>>) AssocNone,
+    binary ">" (Ex.gt .>>) AssocNone, binary "<=" (Ex.lte .>>) AssocNone,
+    binary "<" (Ex.lt .>>) AssocNone, binary "/=" (Ex.neq .>>) AssocNone],
   [binary "&" (Ex.and .>>) AssocLeft],
   [binary "|" (Ex.or .>>) AssocLeft]
  ]
@@ -111,35 +111,23 @@ num = do
 literal :: Parser Expr
 literal = true <|> false <|> num
 
-letBody :: Parser (Name, Expr, Expr)
-letBody = do
+letIn :: Parser Expr
+letIn = do
+  reserved "let"
+  r <- optionMaybe (reserved "rec")
   v <- identifier
   ps <- many identifier
   reservedOp "="
   t <- expr
   reserved "in"
   e <- expr
-  return (v, ps -->> t, e)
-
-letIn :: Parser Expr
-letIn = do
-  reserved "let"
-  (v, t, e) <- letBody
-  return $ Ex.letIn v t e
-
-letRecIn :: Parser Expr
-letRecIn = do
-  reserved "let"
-  reserved "rec"
-  (v, t, e) <- letBody
-  return $ Ex.letRecIn v t e
+  return $ (if isNothing r then Ex.letIn else Ex.letRecIn) v (ps -->> t) e
 
 term :: Parser Expr
 term = choice [
   parens expr,
   ifThenElse,
-  try letRecIn,
-  try letIn,
+  letIn,
   lam,
   literal,
   var
