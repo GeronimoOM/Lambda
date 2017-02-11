@@ -23,37 +23,56 @@ run = runInputT defaultSettings loop
 loop :: Shell ()
 loop = do
   input <- inp
-  unless (input == quit) $ do
-    case parse (spaces >> cmndExpr) "" input of
-      (Left err) -> out err
-      (Right (mc, e)) ->
-        case fromMaybe defCmnd mc of
-          Eval -> onEval e
-          List -> onList e
-          Eff  -> onEff e
-    loop
+  case parse cmndInput "" input of
+    Left err -> out err >> loop
+    Right (mc, input) -> do
+      cont <- case fromMaybe defCmnd mc of
+        Quit -> return False
+        Eval -> onEval input
+        List -> onList input
+        Eff  -> onEff input
+      when cont loop
+
+onEval :: String -> Shell Bool
+onEval input = do
+  onParseExpr input (outValMaybe . eval)
+  return True
+
+onList :: String -> Shell Bool
+onList input = do
+  onParseExpr input (outLs . evalLs)
+  return True where
+    outLs ls = do
+      mapM_  outNumExpr (zip [1..] ls)
+      outValMaybe (last ls)
+    outNumExpr (n, e) = outS ( "[" ++ show n ++ "] " ++ show e)
+
+onEff :: String -> Shell Bool
+onEff input = do
+  onParseExpr input outEff
+  return True where
+    outEff e = maybe (out "Expression does not evaluate to a valid value")
+      out (Ad.effEvalToValue e)
 
 pref :: String
 pref = "[λ] "
-
-quit :: String
-quit = ":quit"
 
 out :: Show s => s -> Shell ()
 out s = outputStrLn (pref ++ show s)
 
 outS :: String -> Shell ()
-outS = outputStrLn
+outS s = outputStrLn (pref ++ s)
 
 inp :: Shell String
 inp = fmap fromJust (getInputLine pref)
 
-data Command = Eval | List | Eff
+data Command = Quit | Eval | List | Eff
 
 commands :: Map String Command
 commands = insert "eval" Eval .
            insert "list" List .
-           insert "eff" Eff $
+           insert "eff" Eff .
+           insert "quit" Quit $
            empty
 
 toCmnd :: String -> Maybe Command
@@ -66,39 +85,17 @@ cmnd :: Parser Command
 cmnd = do
   char ':'
   s <- many1 lower
-  spaces
-  case toCmnd s of
-    Just c  -> return c
-    Nothing -> parserFail "Invalid command"
+  maybe (parserFail "Invalid command") return (toCmnd s)
 
-cmndExpr :: Parser (Maybe Command, Expr)
-cmndExpr = do
+cmndInput :: Parser (Maybe Command, String)
+cmndInput = do
   mc <- optionMaybe cmnd
-  e <- expr
-  return (mc, e)
+  spaces
+  input <- getInput
+  return (mc, input)
 
 outValMaybe :: Expr -> Shell ()
-outValMaybe e = case toValue e of
-  Just v  -> out v
-  Nothing -> out e
+outValMaybe e = maybe (out e) out (toValue e)
 
-onEval :: Expr -> Shell ()
-onEval e = do
-  let ev = eval e
-  outValMaybe ev
-
-onList :: Expr -> Shell ()
-onList e = do
-  let ls = evalLs e
-  mapM_  outNumExpr (zip [1..] ls)
-  outValMaybe (last ls) where
-    outNumExpr (n, e) = outS ("[λ][" ++ show n ++ "] " ++ show e)
-
-onEff :: Expr -> Shell ()
-onEff e = let
-  mv = do
-    ee <- Ad.toEff e
-    Ad.toValue (Ef.eval ee) in
-  case mv of
-    Just v  -> out v
-    Nothing -> out "Expression does not evaluate to a valid value"
+onParseExpr :: String -> (Expr -> Shell ()) -> Shell ()
+onParseExpr input f = either out f (parse expr "" input)
