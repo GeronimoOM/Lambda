@@ -1,4 +1,4 @@
-module Lambda.Efficient.Nameless (Expr(..), shift, shiftc, subst, redex, reduce, eval) where
+module Lambda.Efficient (Expr(..), shift, shiftc, subst, redex, reduce, eval) where
 
 data Expr
   = Var Int

@@ -1,4 +1,7 @@
-module Lambda.Parser where
+module Lambda.Parser
+  (ifThenElse, lam, name, var, true, false,
+    num, literal, expr, definit, parseExpr)
+where
 
 import           Data.Functor.Identity (Identity)
 import           Data.Maybe
@@ -21,7 +24,8 @@ lang = Tok.LanguageDef {
   , Tok.identLetter     = lower <|> oneOf "_'"
   , Tok.opStart         = oneOf ":!&*+<=>|-?"
   , Tok.opLetter        = oneOf ":!&*+<=>|-?"
-  , Tok.reservedNames   = ["if", "then", "else", "let", "rec", "in", "true", "false"]
+  , Tok.reservedNames   = ["if", "then", "else", "let", "rec", "in",
+  "true", "false", "fst", "snd", "sel"]
   , Tok.reservedOpNames = ["\\", "->", "="]
   , Tok.caseSensitive   = True
   }
@@ -59,7 +63,8 @@ postfix s f = Postfix (reservedOp s >> return f)
 table :: OperTable Expr
 table = [
   [postfix "++" (Ex.succ .>), postfix "--" (Ex.pred .>),
-   prefix "!" (Ex.not .>), postfix "?" (Ex.iszero .>)],
+   prefix "!" (Ex.not .>), postfix "?" (Ex.isZero .>)],
+  [binary "," (Ex.pair .>>) AssocRight],
   [binary "" (<>) AssocLeft],
   [binary "*" (Ex.mult .>>) AssocLeft],
   [binary "+" (Ex.add .>>) AssocLeft, binary "-" (Ex.subtr .>>) AssocLeft],
@@ -88,9 +93,12 @@ lam = do
   e <- expr
   return $ vs -->> e
 
+name :: Parser Name
+name = identifier
+
 var :: Parser Expr
 var = do
-  n <- identifier
+  n <- name
   return $ Var n
 
 true :: Parser Expr
@@ -111,12 +119,32 @@ num = do
 literal :: Parser Expr
 literal = true <|> false <|> num
 
+first :: Parser Expr
+first = do
+  reserved "fst"
+  return Ex.fst
+
+second :: Parser Expr
+second = do
+  reserved "snd"
+  return Ex.snd
+
+{-
+select :: Parser Expr
+select = do
+  reserved "sel"
+  return Ex.sel
+-}
+
+oper :: Parser Expr
+oper = first <|> second -- <|> select
+
 letIn :: Parser Expr
 letIn = do
   reserved "let"
   r <- optionMaybe (reserved "rec")
-  v <- identifier
-  ps <- many identifier
+  v <- name
+  ps <- many name
   reservedOp "="
   t <- expr
   reserved "in"
@@ -129,12 +157,20 @@ term = choice [
   ifThenElse,
   letIn,
   lam,
+  oper,
   literal,
   var
  ]
 
 expr :: Parser Expr
 expr = buildExpressionParser table term
+
+definit :: Parser (Name, Expr)
+definit = do
+  n <- name
+  reservedOp "="
+  e <- expr
+  return (n, e)
 
 parseExpr :: String -> Either ParseError Expr
 parseExpr = parse expr ""

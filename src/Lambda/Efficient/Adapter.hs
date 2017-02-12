@@ -1,8 +1,8 @@
 module Lambda.Efficient.Adapter where
 
 import           Data.List
-import           Lambda.Core               (Expr (..), Value (..))
-import qualified Lambda.Efficient.Nameless as Ef
+import           Lambda.Core      (Expr (..), Value (..))
+import qualified Lambda.Efficient as Ef
 
 toEff :: Expr -> Maybe Ef.Expr
 toEff = toEffSt [] where
@@ -28,6 +28,10 @@ toValue (Ef.Lam (Ef.Lam e)) = do
       n <- count e
       return (n + 1)
     count _            = Nothing
+toValue (Ef.Lam (Ef.App (Ef.App (Ef.Var 0) lt) rt)) = do
+  vlt <- toValue lt
+  vrt <- toValue rt
+  return (VPair (vlt, vrt))
 toValue _ = Nothing
 
 effEvalToValue :: Expr -> Maybe Value

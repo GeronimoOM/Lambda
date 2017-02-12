@@ -1,6 +1,6 @@
 module Main where
 
-import           Lambda.Shell
+import           Lambda.Console
 
 main :: IO ()
 main = run

@@ -1,6 +1,9 @@
-module Lambda.Core where
+module Lambda.Core
+  (Expr(..), Name, (<>), (-->), (-->>), Value(..), toValue) where
 
-import           Text.PrettyPrint as P
+import           Text.PrettyPrint (char, hsep, parens, render, text, (<+>))
+import qualified Text.PrettyPrint as P
+
 
 data Expr
   = Var Name
@@ -23,32 +26,36 @@ vs -->> e = foldr (-->) e vs
 
 
 instance Show Expr where
-  show = P.render .doc
+  show = P.render . pretty
 
-doc :: Expr -> Doc
-doc (Var x)   = text x
-doc (App e1 e2) = parensLam e1 (doc e1)
-  <+> parensNotVar e2 (doc e2) where
+pretty :: Expr -> P.Doc
+pretty (Var x)   = text x
+pretty (App e1 e2) = parensLam e1 (pretty e1)
+  <+> parensNotVar e2 (pretty e2) where
     parensLam (Lam _ _) = parens
     parensLam _         = id
     parensNotVar  (Var _) = id
     parensNotVar _        = parens
-doc lam = let (vars, body) = varsBody lam
+pretty lam = let (vars, body) = varsBody lam
   in char 'λ' P.<> hsep (map text vars)
-     <+> text "->" <+> doc body
+     <+> text "->" <+> pretty body
 
 varsBody :: Expr -> ([Name], Expr)
 varsBody (Lam x e) = let (vars, body) = varsBody e
  in (x : vars, body)
 varsBody e = ([], e)
 
+
+
 data Value
   = VBool Bool
   | VNat Int
+  | VPair (Value, Value)
 
 instance Show Value where
   show (VBool b) = show b
   show (VNat i)  = show i
+  show (VPair p) = show p
 
 toValue :: Expr -> Maybe Value
 toValue (Lam x (Lam y (Var vx))) | x == vx = return (VBool True)
@@ -61,4 +68,8 @@ toValue (Lam f (Lam x e)) = do
       n <- count e'
       return (n + 1)
     count _            = Nothing
+toValue (Lam f (App (App (Var vf) lt) rt)) | f == vf = do
+  vlt <- toValue lt
+  vrt <- toValue rt
+  return (VPair (vlt, vrt))
 toValue _ = Nothing

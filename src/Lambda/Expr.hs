@@ -1,8 +1,8 @@
 module Lambda.Expr
    ((.>), (.>>), (.>>>),
     true, false, ifThenElse, not, and, or,
-    pair, fst, snd, curry, uncurry,
-    num, succ, iszero, pred,
+    pair, fst, snd, cur, uncur,
+    num, succ, isZero, pred,
     eq, neq, gte, gt, lte, lt,
     add, mult, subtr,
     combS, combK, combI,
@@ -10,7 +10,7 @@ module Lambda.Expr
     letIn, letRecIn) where
 
 import           Lambda.Core
-import qualified Prelude     as P
+import           Prelude     (Int, iterate, (!!), (-))
 
 x, y, p, q, f, n, m :: Name
 x = "x"
@@ -72,21 +72,21 @@ fst = p --> vp <> true
 snd :: Expr
 snd = p --> vp <> false
 
-curry :: Expr
-curry = [f, x, y] -->> vf <> (pair <> vx <> vy)
+cur :: Expr
+cur = [f, x, y] -->> vf <> (pair <> vx <> vy)
 
-uncurry :: Expr
-uncurry = [f, p] -->> vf <> (fst <> vp) <> (snd <> vp)
+uncur :: Expr
+uncur = [f, p] -->> vf <> (fst <> vp) <> (snd <> vp)
 
 -- Natural numbers
-num :: P.Int -> Expr
-num n = [f, x] -->> P.iterate (vf <>) vx P.!! n
+num :: Int -> Expr
+num n = [f, x] -->> iterate (vf <>) vx !! n
 
 succ :: Expr
 succ = [n, f, x] -->> vn <> vf <> (vf <> vx)
 
-iszero :: Expr
-iszero = n --> vn <> (x --> false) <> true
+isZero :: Expr
+isZero = n --> vn <> (x --> false) <> true
 
 prefn :: Expr
 prefn = [f, p] -->> pair <> false <> (ifThenElse <> (fst <> vp) <> (snd <> vp) <> (vf <> (snd <> vp)))
@@ -96,7 +96,7 @@ pred = [n, f, x] -->> snd <> (vn <> (prefn <> vf) <> (pair <> true <> vx))
 
 -- Comparison
 eq :: Expr
-eq = [n, m] -->> and <> (iszero <> (vn <> pred <> vm)) <> (iszero <> (vm <> pred <> vn))
+eq = [n, m] -->> and <> (isZero <> (vn <> pred <> vm)) <> (isZero <> (vm <> pred <> vn))
 
 neq :: Expr
 neq = [n, m] -->> not <> (eq <> vn <> vm)
@@ -105,7 +105,7 @@ gt :: Expr
 gt = [n, m] -->> (lt <> vm <> vn)
 
 gte :: Expr
-gte = [n, m] -->> iszero <> (vn <> pred <> vm)
+gte = [n, m] -->> isZero <> (vn <> pred <> vm)
 
 lt :: Expr
 lt = [n, m] -->> not <> (gte <> vn <> vm)
