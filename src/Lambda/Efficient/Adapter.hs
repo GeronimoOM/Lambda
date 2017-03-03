@@ -19,7 +19,6 @@ toEff = toEffSt [] where
 
 toValue :: Ef.Expr -> Maybe Value
 toValue (Ef.Lam (Ef.Lam (Ef.Var 1))) = return (VBool True)
-toValue (Ef.Lam (Ef.Lam (Ef.Var 0))) = return (VBool False)
 toValue (Ef.Lam (Ef.Lam e)) = do
   n <- count e
   return (VNat n) where

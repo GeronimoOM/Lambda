@@ -1,10 +1,10 @@
 module Lambda.Parser
   (ifThenElse, lam, name, var, true, false,
-    num, literal, expr, definit, parseExpr)
+    num, literal, def, expr)
 where
 
 import           Data.Functor.Identity (Identity)
-import           Data.Maybe
+import           Data.Maybe            (isNothing)
 import           Lambda.Core           (Expr (..), Name, (-->), (-->>), (<>))
 import           Lambda.Expr           ((.>), (.>>), (.>>))
 import qualified Lambda.Expr           as Ex
@@ -22,10 +22,10 @@ lang = Tok.LanguageDef {
   , Tok.nestedComments  = True
   , Tok.identStart      = lower
   , Tok.identLetter     = lower <|> oneOf "_'"
-  , Tok.opStart         = oneOf ":!&*+<=>|-?"
-  , Tok.opLetter        = oneOf ":!&*+<=>|-?"
+  , Tok.opStart         = oneOf ":!&*+<=>|-?/%"
+  , Tok.opLetter        = oneOf ":!&*+<=>|-?/%"
   , Tok.reservedNames   = ["if", "then", "else", "let", "rec", "in",
-  "true", "false", "fst", "snd", "sel"]
+  "true", "false", "fst", "snd", "div"]
   , Tok.reservedOpNames = ["\\", "->", "="]
   , Tok.caseSensitive   = True
   }
@@ -54,6 +54,9 @@ type OperTable a = OperatorTable String () Identity a
 binary :: String -> (a -> a -> a) -> Assoc -> Oper a
 binary s f = Infix (reservedOp s >> return f)
 
+binaryName :: String -> (a -> a -> a) -> Assoc -> Oper a
+binaryName s f = Infix (reserved s >> return f)
+
 prefix :: String -> (a -> a) -> Oper a
 prefix s f = Prefix (reservedOp s >> return f)
 
@@ -66,8 +69,9 @@ table = [
    prefix "!" (Ex.not .>), postfix "?" (Ex.isZero .>)],
   [binary "," (Ex.pair .>>) AssocRight],
   [binary "" (<>) AssocLeft],
-  [binary "*" (Ex.mult .>>) AssocLeft],
-  [binary "+" (Ex.add .>>) AssocLeft, binary "-" (Ex.subtr .>>) AssocLeft],
+  [binary "*" (Ex.mult .>>) AssocLeft, binary "/" (Ex.quot .>>) AssocLeft,
+  binary "%" (Ex.rem  .>>) AssocLeft, binaryName "div" (Ex.div .>>) AssocLeft],
+  [binary "+" (Ex.add .>>) AssocLeft, binary "-" (Ex.sub .>>) AssocLeft],
   [binary ">=" (Ex.gte .>>) AssocNone, binary "==" (Ex.eq .>>) AssocNone,
     binary ">" (Ex.gt .>>) AssocNone, binary "<=" (Ex.lte .>>) AssocNone,
     binary "<" (Ex.lt .>>) AssocNone, binary "/=" (Ex.neq .>>) AssocNone],
@@ -129,27 +133,25 @@ second = do
   reserved "snd"
   return Ex.snd
 
-{-
-select :: Parser Expr
-select = do
-  reserved "sel"
-  return Ex.sel
--}
-
 oper :: Parser Expr
-oper = first <|> second -- <|> select
+oper = first <|> second
+
+def :: Parser (Name, Expr)
+def = do
+  r <- optionMaybe (reserved "rec")
+  n <- name
+  ps <- many name
+  reservedOp "="
+  e <- expr
+  return (n, (if isNothing r then id else Ex.recurs n) (ps -->> e))
 
 letIn :: Parser Expr
 letIn = do
   reserved "let"
-  r <- optionMaybe (reserved "rec")
-  v <- name
-  ps <- many name
-  reservedOp "="
-  t <- expr
+  (n, t) <- def
   reserved "in"
   e <- expr
-  return $ (if isNothing r then Ex.letIn else Ex.letRecIn) v (ps -->> t) e
+  return $ Ex.letIn n t e
 
 term :: Parser Expr
 term = choice [
@@ -164,13 +166,3 @@ term = choice [
 
 expr :: Parser Expr
 expr = buildExpressionParser table term
-
-definit :: Parser (Name, Expr)
-definit = do
-  n <- name
-  reservedOp "="
-  e <- expr
-  return (n, e)
-
-parseExpr :: String -> Either ParseError Expr
-parseExpr = parse expr ""

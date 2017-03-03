@@ -5,27 +5,20 @@ import           Control.Monad.State.Strict
 import           Data.List                  (intercalate)
 import           Data.Maybe                 (fromJust, fromMaybe)
 import           Lambda.Console.Command
+import           Lambda.Console.Context
 import           Lambda.Core                (Expr, Name, toValue)
 import           Lambda.Efficient.Adapter   (effEvalToValue)
-import           Lambda.Eval                (eval, evalLs)
-import           Lambda.Parser              (definit, expr)
+import           Lambda.Eval                (eval, evalL, evalN)
+import           Lambda.Parser              (def, expr, name)
 import           System.Console.Haskeline
-import           Text.Parsec                (char, parse, spaces)
+import           System.IO
+import           Text.Parsec
 import           Text.Parsec.String         (Parser)
 
 type Console a = InputT (StateT Context IO) a
-type Context = [Definition]
-type Definition = (Name, Expr)
-
-emptyCtxt :: Context
-emptyCtxt = []
-
-name :: Definition -> Name
-name (n, _) = n
-
 
 run :: IO ()
-run = evalStateT (runInputT defaultSettings loop) emptyCtxt
+run = evalStateT (runInputT defaultSettings loop) empty
 
 loop :: Console ()
 loop = do
@@ -41,6 +34,9 @@ loop = do
 pref :: String
 pref = "[λ] "
 
+err :: String -> String
+err s = "<" ++ s ++ ">"
+
 out :: Show s => s -> Console ()
 out s = outputStrLn (pref ++ show s)
 
@@ -51,40 +47,76 @@ inp :: Console String
 inp = fmap fromJust (getInputLine pref)
 
 onCmd :: String -> Command -> Console ()
-onCmd input Eval = onEval input
-onCmd input List = onList input
-onCmd input Eff  = onEff input
-onCmd input Add  = onAdd input
-onCmd _ Ctx      = onCtx
-onCmd _ Mogo     = outS secret
+onCmd input Eval  = onEval input
+onCmd input List  = onList input
+onCmd input Steps = onSteps input
+onCmd input Eff   = onEff input
+onCmd input Set   = onSet input
+onCmd input Load  = onLoad input
+onCmd _     Ctx   = onCtx
+onCmd input Rmv   = onRmv input
+onCmd _     Clr   = onClr
 
 onEval :: String -> Console ()
 onEval input = either out outEval (parse expr "" input) where
-  outEval e = let ev = eval e
-    in maybe (out ev) out (toValue ev)
+  outEval e = do
+    ec <- withCtx e
+    let ev = eval ec
+     in maybe (out ev) out (toValue ev)
 
 onList :: String -> Console ()
 onList input = either out outList (parse expr "" input) where
   outList e = do
-    let ls = evalLs e
+    ec <- withCtx e
+    let ls = evalL ec
         lls = last ls
-    mapM_  outNumExpr (zip [1..] ls)
-    maybe (out lls) out (toValue (last ls)) where
-      outNumExpr (n, e) = outS ("[" ++ show n ++ "] " ++ show e)
+    mapM_  (outS . showNumExpr) (zip [1..] ls)
+    maybe (out lls) out (toValue (last ls))
+
+onSteps :: String -> Console ()
+onSteps input = either out outSteps (parse expr "" input) where
+  outSteps e = do
+    ec <- withCtx e
+    let (ev, n) = evalN ec
+    maybe (out ev) out (toValue ev)
+    outS ("[" ++ show n ++ "]")
 
 onEff :: String -> Console ()
 onEff input = either out outEff (parse expr "" input) where
-    outEff e = maybe (outS invalid) out (effEvalToValue e)
-    invalid = "expression does not evaluate to a valid value"
+    outEff e =  do
+      ec <- withCtx e
+      maybe (outS $ err "invalid value") out (effEvalToValue ec)
 
-onAdd :: String -> Console ()
-onAdd input = either out addDef (parse definit "" input) where
-    addDef :: Definition -> Console ()
-    addDef d      = lift $ modify (d:)
+onSet :: String -> Console ()
+onSet input = either out setDef (parse def "" input) where
+    setDef :: Definition -> Console ()
+    setDef d = lift $ modify (`set` d)
+
+onLoad :: String -> Console ()
+onLoad input = let file = (unwords . words) input in
+  if null file then outS $ err "no file specified" else do
+    content <- lift . lift $ readFile file
+    mapM_ onSet (lines content)
 
 onCtx :: Console ()
 onCtx = do
-    ctx <- lift get
-    outS (intercalate ", " (map name ctx))
+    defs <- lift $ gets entries
+    if not (null defs)
+    then mapM_ (outS . showDef) defs
+    else outS $ err "context is empty"
 
-secret = "'The only language better than C++ is Haskell' - Boublik V. V, 2017"
+onRmv :: String -> Console ()
+onRmv input = either out rmDef (parse name "" input) where
+  rmDef :: String -> Console ()
+  rmDef n = lift $ modify (`remove` n)
+
+onClr :: Console ()
+onClr = lift $ put empty
+
+withCtx :: Expr -> Console Expr
+withCtx e = do
+  ctx <- lift get
+  return (resolve ctx e)
+
+showNumExpr :: (Int, Expr) -> String
+showNumExpr (n, e) = "[" ++ show n ++ "] " ++ show e

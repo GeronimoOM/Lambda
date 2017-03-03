@@ -59,7 +59,6 @@ instance Show Value where
 
 toValue :: Expr -> Maybe Value
 toValue (Lam x (Lam y (Var vx))) | x == vx = return (VBool True)
-toValue (Lam x (Lam y (Var vy))) | y == vy = return (VBool False)
 toValue (Lam f (Lam x e)) = do
   n <- count e
   return (VNat n) where

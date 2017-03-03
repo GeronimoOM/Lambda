@@ -1,20 +1,25 @@
 module Lambda.Console.Command where
 
-import           Data.Map           as M (Map, empty, insert, lookup)
+import           Data.Map.Strict    as M (Map, empty, insert, lookup)
 import           Text.Parsec
 import           Text.Parsec.String (Parser)
 
-data Command = Eval | List | Eff | Add | Ctx | Quit | Mogo
+data Command = Eval | List | Steps | Eff
+  | Set | Load | Ctx | Rmv | Clr | Quit | Test
   deriving (Show, Eq)
 
 commands :: Map String Command
-commands = insert "eval" Eval .
-           insert "list" List .
-           insert "eff"  Eff .
-           insert "add"  Add .
-           insert "ctx"  Ctx .
-           insert "mogo" Mogo .
-           insert "quit" Quit $
+commands = insert "eval"  Eval .
+           insert "list"  List .
+           insert "steps" Steps .
+           insert "eff"   Eff .
+           insert "set"   Set .
+           insert "load"  Load .
+           insert "ctx"   Ctx .
+           insert "rmv"   Rmv .
+           insert "clr"   Clr .
+           insert "test"  Test .
+           insert "quit"  Quit $
            empty
 
 toCmd :: String -> Maybe Command

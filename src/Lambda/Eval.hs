@@ -1,18 +1,19 @@
 module Lambda.Eval
-  (free, bound, subst, redex, reduce, eval, evalLs)
+  (free, bound, subst, genName, redex, reduce, eval, evalL, evalN)
 where
 
 import           Control.Monad.State
 import           Control.Monad.Writer
+import           Data.Set             (Set)
 import qualified Data.Set             as S
 import           Lambda.Core
 
-free :: Expr -> S.Set Name
+free :: Expr -> Set Name
 free (Var x)     = S.singleton x
 free (App e1 e2) = S.union (free e1) (free e2)
 free (Lam x e)   = S.delete x (free e)
 
-bound :: Expr -> S.Set Name
+bound :: Expr -> Set Name
 bound (Var x)     = S.empty
 bound (App e1 e2) = S.union (bound e1) (bound e2)
 bound (Lam x e)   = S.insert x (bound e)
@@ -25,12 +26,12 @@ subst (App e1 e2) v t = App (subst e1 v t) (subst e2 v t)
 subst (Lam x e) v t
   | x == v = Lam x e
   | S.notMember v (free e) || S.notMember x (free t) = Lam x (subst e v t)
-  | otherwise = let z = genNameNotIn x (S.union (free e) (free t))
+  | otherwise = let z = genName (S.union (free e) (free t))
                 in Lam z (subst (subst e x (Var z)) v t)
 
-genNameNotIn :: Name -> S.Set Name -> Name
-genNameNotIn n names = let n' = n ++ "_"
-  in if S.member n' names then genNameNotIn n' names else n'
+genName :: Set Name -> Name
+genName names = genName' names 'a' where
+  genName' ns n = if S.member [n] ns then genName' ns (succ n) else [n]
 
 redex :: Expr -> Bool
 redex (App (Lam x e) t) = True
@@ -68,12 +69,22 @@ evalSRed e = do
   put True
   return (reduce e)
 
-evalLs :: Expr -> [Expr]
-evalLs e = execWriter (evalW e)
+evalL :: Expr -> [Expr]
+evalL e = execWriter (evalWe e)
 
-evalW :: Expr -> Writer [Expr] Expr
-evalW e = do
+evalWe :: Expr -> Writer [Expr] Expr
+evalWe e = do
   tell [e]
   case evalSRun e of
     (ev, False) -> return ev
-    (ev, True)  ->  evalW ev
+    (ev, True)  ->  evalWe ev
+
+evalN :: Expr -> (Expr, Int)
+evalN e = let (ev, s) = runWriter (evalWs e) in (ev, getSum s)
+
+evalWs :: Expr -> Writer (Sum Int) Expr
+evalWs e = do
+  tell 1
+  case evalSRun e of
+    (ev, False) -> return ev
+    (ev, True)  ->  evalWs ev
