@@ -1,5 +1,5 @@
 module Lambda.Eval
-  (free, bound, subst, genName, redex, reduce, eval, evalL, evalN)
+  (free, bound, subst, genName, redex, reduce, eval, evalL)
 where
 
 import           Control.Monad.State
@@ -70,21 +70,11 @@ evalSRed e = do
   return (reduce e)
 
 evalL :: Expr -> [Expr]
-evalL e = execWriter (evalWe e)
+evalL e = execWriter (evalW e)
 
-evalWe :: Expr -> Writer [Expr] Expr
-evalWe e = do
+evalW :: Expr -> Writer [Expr] Expr
+evalW e = do
   tell [e]
   case evalSRun e of
     (ev, False) -> return ev
-    (ev, True)  ->  evalWe ev
-
-evalN :: Expr -> (Expr, Int)
-evalN e = let (ev, s) = runWriter (evalWs e) in (ev, getSum s)
-
-evalWs :: Expr -> Writer (Sum Int) Expr
-evalWs e = do
-  tell 1
-  case evalSRun e of
-    (ev, False) -> return ev
-    (ev, True)  ->  evalWs ev
+    (ev, True)  ->  evalW ev

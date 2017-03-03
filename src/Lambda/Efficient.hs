@@ -1,4 +1,6 @@
-module Lambda.Efficient (Expr(..), shift, shiftc, subst, redex, reduce, eval) where
+module Lambda.Efficient (Expr(..), shift, shiftc, subst, redex, reduce, eval, evalN) where
+
+import           Control.Monad.Writer
 
 data Expr
   = Var Int
@@ -87,6 +89,14 @@ dfsZ p z
 
 eval :: Expr -> Expr
 eval e = unzipper $ dfsRedex (root e) where
-  dfsRedex z = case dfsZ (redex . unzipper) z
-    of Right z -> dfsRedex $ (if isLeft z then up else id) (applyZ reduce z)
-       Left z  -> z
+  dfsRedex z = either id (\z -> dfsRedex $ (if isLeft z then up else id) (applyZ reduce z))
+   (dfsZ (redex . unzipper) z)
+
+evalN :: Expr -> (Expr, Int)
+evalN e = let (ev, s) = runWriter (evalW e) in (ev, getSum s)
+
+evalW :: Expr -> Writer (Sum Int) Expr
+evalW e = unzipper <$> dfsRedexW (root e) where
+  dfsRedexW z = do { tell 1; either return
+     (\z -> dfsRedexW $ (if isLeft z then up else id) (applyZ reduce z))
+     (dfsZ (redex . unzipper) z) }

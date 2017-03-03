@@ -37,3 +37,10 @@ effEvalToValue :: Expr -> Maybe Value
 effEvalToValue e = do
   ef <- toEff e
   toValue (Ef.eval ef)
+
+effEvalNToValue :: Expr -> Maybe (Value, Int)
+effEvalNToValue e = do
+  ef <- toEff e
+  let (ev, n) = Ef.evalN ef
+  val <- toValue ev
+  return (val, n)

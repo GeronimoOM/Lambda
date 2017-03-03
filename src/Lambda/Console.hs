@@ -7,8 +7,8 @@ import           Data.Maybe                 (fromJust, fromMaybe)
 import           Lambda.Console.Command
 import           Lambda.Console.Context
 import           Lambda.Core                (Expr, Name, toValue)
-import           Lambda.Efficient.Adapter   (effEvalToValue)
-import           Lambda.Eval                (eval, evalL, evalN)
+import           Lambda.Efficient.Adapter   (effEvalNToValue, effEvalToValue)
+import           Lambda.Eval                (eval, evalL)
 import           Lambda.Parser              (def, expr, name)
 import           System.Console.Haskeline
 import           System.IO
@@ -77,9 +77,8 @@ onSteps :: String -> Console ()
 onSteps input = either out outSteps (parse expr "" input) where
   outSteps e = do
     ec <- withCtx e
-    let (ev, n) = evalN ec
-    maybe (out ev) out (toValue ev)
-    outS ("[" ++ show n ++ "]")
+    maybe (outS $ err "invalid value") outN (effEvalNToValue ec)
+  outN (ev, n) = out ev >> outS ("[" ++ show n ++ "]")
 
 onEff :: String -> Console ()
 onEff input = either out outEff (parse expr "" input) where
