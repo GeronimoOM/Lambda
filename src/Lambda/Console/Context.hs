@@ -7,6 +7,7 @@ import           Lambda.Core
 import           Lambda.Eval
 import           Lambda.Expr
 import qualified Model.Graph      as G
+import qualified Model.Graph.Scc  as G
 import           Text.PrettyPrint as P (equals, render, text, (<+>), (<>))
 
 data Context = Context
@@ -22,7 +23,7 @@ empty = Context M.empty G.empty
 set :: Context -> Definition -> Context
 set (Context ds gr) (nm, ex) = Context dsn (setTo . setFrom . reset $ gr) where
   dsn = M.insert nm ex ds
-  reset gr = G.vertex (G.delete gr nm) nm
+  reset gr = G.insert (G.delete gr nm) nm
   setFrom gr = S.foldl (\g to -> G.edge g (nm, to)) gr (free ex `S.intersection` M.keysSet dsn)
   setTo gr = M.foldlWithKey (\g n e -> if S.member nm (free e) then G.edge g (n, nm) else g) gr ds
 
