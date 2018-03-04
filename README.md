@@ -1,4 +1,4 @@
-# Typeless lambda-calculus
+# Typeless Lambda-Calculus
 
 This is a pure Haskell implementation of typeless lambda-calculus.
 The project is a console REPL application, which evalutes submitted lambda-expressions.
@@ -45,5 +45,5 @@ let fact i = if i? then 1 else i * fact i-- in fact 5
 ```
 ## Sources
 
-* Rojas, R. (2015, March 28). A Tutorial Introduction to the Lambda Calculus. Retrieved March 04, 2018, from https://arxiv.org/abs/1503.09060
-* Pierce, B. C. (2002, January 03). Types and Programming Languages. Retrieved March 04, 2018, from https://mitpress.mit.edu/books/types-and-programming-languages
+* Rojas, R. (2015, March 28). A Tutorial Introduction to the Lambda Calculus. Retrieved from https://arxiv.org/abs/1503.09060
+* Pierce, B. C. (2002, January 03). Types and Programming Languages. Retrieved from https://mitpress.mit.edu/books/types-and-programming-languages
